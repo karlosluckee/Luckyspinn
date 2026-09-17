@@ -1,0 +1,375 @@
+--[[
+    Lucky Spin - Somni's Engine
+    Uso autorizado apenas em ambiente de teste próprio.
+    ESP / Fly / Noclip / God Mode funcionam client-side.
+    Auto-Máquina e Auto-Item dependem de ProximityPrompts (funcionam se estiverem acessíveis no cliente).
+]]
+
+--// Carrega a Rayfield
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+--// Estado global
+local State = {
+    Fly = false,
+    FlySpeed = 50,
+    Noclip = false,
+    GodMode = false,
+    ESP = false,
+    AutoMachine = false,
+    AutoItem = false,
+}
+
+--// ============================
+--// FUNÇÕES AUXILIARES
+--// ============================
+
+--// God Mode
+local function aplicarGodMode()
+    if not State.GodMode then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.MaxHealth = math.huge
+        hum.Health = math.huge
+    end
+    -- Loop para reaplicar caso o jogo tente resetar
+    task.spawn(function()
+        while State.GodMode do
+            task.wait(0.5)
+            local c = LocalPlayer.Character
+            if c then
+                local h = c:FindFirstChildOfClass("Humanoid")
+                if h then
+                    h.MaxHealth = math.huge
+                    h.Health = math.huge
+                end
+            end
+        end
+    end)
+end
+
+--// Noclip
+local function aplicarNoclip()
+    task.spawn(function()
+        while State.Noclip do
+            task.wait(0.1)
+            local char = LocalPlayer.Character
+            if char then
+                for _, parte in ipairs(char:GetDescendants()) do
+                    if parte:IsA("BasePart") and parte.CanCollide then
+                        parte.CanCollide = false
+                    end
+                end
+            end
+        end
+    end)
+end
+
+--// Fly (funciona com teclado e mobile)
+local function iniciarFly()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local root = char:WaitForChild("HumanoidRootPart")
+    local hum = char:WaitForChild("Humanoid")
+
+    local bg = Instance.new("BodyVelocity")
+    bg.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bg.Velocity = Vector3.zero
+    bg.Parent = root
+
+    local bg2 = Instance.new("BodyGyro")
+    bg2.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bg2.P = 1000
+    bg2.D = 50
+    bg2.Parent = root
+
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        if not State.Fly then
+            if bg then bg:Destroy() end
+            if bg2 then bg2:Destroy() end
+            if connection then connection:Disconnect() end
+            if hum then hum.PlatformStand = false end
+            return
+        end
+
+        local direcao = Vector3.zero
+        local camCF = Camera.CFrame
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            direcao = direcao + camCF.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            direcao = direcao - camCF.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            direcao = direcao - camCF.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            direcao = direcao + camCF.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            direcao = direcao + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+            direcao = direcao - Vector3.new(0, 1, 0)
+        end
+
+        if direcao.Magnitude > 0 then
+            direcao = direcao.Unit
+        end
+
+        bg.Velocity = direcao * State.FlySpeed
+        bg2.CFrame = camCF
+        hum.PlatformStand = true
+    end)
+end
+
+--// ESP genérico (cria Highlight em cada objeto)
+local ESPAtivos = {}
+local function criarESP(objeto, cor, nomeTag)
+    if ESPAtivos[objeto] then return end
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = cor
+    highlight.OutlineColor = cor
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = objeto
+    ESPAtivos[objeto] = {highlight = highlight, tag = nomeTag}
+end
+
+local function removerTodosESP()
+    for obj, dados in pairs(ESPAtivos) do
+        if dados.highlight and dados.highlight.Parent then
+            dados.highlight:Destroy()
+        end
+    end
+    ESPAtivos = {}
+end
+
+local function atualizarESP()
+    if not State.ESP then
+        removerTodosESP()
+        return
+    end
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+            local nome = obj.Name:lower()
+            -- Manics: nome contém manic, toasten, loaffle, magni, luckee, peanut, nara, karie
+            if nome:find("manic") or nome:find("toasten") or nome:find("loaffle")
+               or nome:find("magni") or nome:find("luckee") or nome:find("peanut")
+               or nome:find("nara") or nome:find("karie") then
+                -- Diferencia player de manic
+                if not Players:GetPlayerFromCharacter(obj) then
+                    criarESP(obj, Color3.fromRGB(255, 50, 50), "MANIC")
+                end
+            end
+        elseif obj:IsA("ProximityPrompt") then
+            local objText = obj.ObjectText:lower()
+            local actionText = obj.ActionText:lower()
+            local parent = obj.Parent
+            if parent and parent:IsA("BasePart") then
+                if objText:find("resto") then
+                    criarESP(parent, Color3.fromRGB(255, 255, 0), "RESTO")
+                elseif objText:find("máquina") or objText:find("maquina")
+                    or actionText:find("reparar") or actionText:find("extrair") then
+                    criarESP(parent, Color3.fromRGB(0, 200, 255), "MÁQUINA")
+                elseif objText:find("armário") or objText:find("armario")
+                    or actionText:find("abrir") then
+                    criarESP(parent, Color3.fromRGB(0, 255, 100), "ARMÁRIO")
+                end
+            end
+        end
+    end
+end
+
+--// Auto ativar ProximityPrompts (máquinas / itens)
+local function ativarPrompt(prompt)
+    if not prompt or not prompt.Enabled then return end
+    local ok = pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(prompt.HoldDuration + 0.1)
+        prompt:InputHoldEnd()
+    end)
+    if not ok then
+        pcall(function() fireproximityprompt(prompt) end)
+    end
+end
+
+--// ============================
+--// INTERFACE RAYFIELD
+--// ============================
+
+local Window = Rayfield:CreateWindow({
+    Name = "Lucky Spin",
+    LoadingTitle = "Lucky Spin",
+    LoadingSubtitle = "Somni's Engine",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "LuckySpin",
+        FileName = "Config"
+    },
+    Discord = { Enabled = false },
+    KeySystem = false,
+})
+
+--// Aba: Automação
+local AbaAuto = Window:CreateTab("Automação", 4483362458)
+
+AbaAuto:CreateToggle({
+    Name = "Auto Máquina",
+    CurrentValue = false,
+    Flag = "AutoMachine",
+    Callback = function(v)
+        State.AutoMachine = v
+        Rayfield:Notify({Title="Lucky Spin", Content=v and "Auto Máquina ATIVADO" or "Auto Máquina DESATIVADO", Duration=3})
+        if v then
+            task.spawn(function()
+                while State.AutoMachine do
+                    task.wait(0.5)
+                    for _, p in ipairs(workspace:GetDescendants()) do
+                        if p:IsA("ProximityPrompt") and p.Enabled then
+                            local ot = p.ObjectText:lower()
+                            local at = p.ActionText:lower()
+                            if ot:find("máquina") or ot:find("maquina")
+                               or at:find("reparar") or at:find("extrair") then
+                                ativarPrompt(p)
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end,
+})
+
+AbaAuto:CreateToggle({
+    Name = "Auto Coletar Itens (Restos)",
+    CurrentValue = false,
+    Flag = "AutoItem",
+    Callback = function(v)
+        State.AutoItem = v
+        Rayfield:Notify({Title="Lucky Spin", Content=v and "Auto Coletar ATIVADO" or "Auto Coletar DESATIVADO", Duration=3})
+        if v then
+            task.spawn(function()
+                while State.AutoItem do
+                    task.wait(0.3)
+                    for _, p in ipairs(workspace:GetDescendants()) do
+                        if p:IsA("ProximityPrompt") and p.Enabled then
+                            local ot = p.ObjectText:lower()
+                            if ot:find("resto") or ot:find("prisma") then
+                                ativarPrompt(p)
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end,
+})
+
+--// Aba: Movimentação
+local AbaMov = Window:CreateTab("Movimentação", 4483362458)
+
+AbaMov:CreateToggle({
+    Name = "Fly",
+    CurrentValue = false,
+    Flag = "Fly",
+    Callback = function(v)
+        State.Fly = v
+        if v then
+            iniciarFly()
+            Rayfield:Notify({Title="Lucky Spin", Content="Fly ATIVADO", Duration=3})
+        else
+            Rayfield:Notify({Title="Lucky Spin", Content="Fly DESATIVADO", Duration=3})
+        end
+    end,
+})
+
+AbaMov:CreateSlider({
+    Name = "Velocidade do Fly",
+    Range = {10, 300},
+    Increment = 5,
+    Suffix = "studs/s",
+    CurrentValue = 50,
+    Flag = "FlySpeed",
+    Callback = function(v)
+        State.FlySpeed = v
+    end,
+})
+
+AbaMov:CreateToggle({
+    Name = "Noclip",
+    CurrentValue = false,
+    Flag = "Noclip",
+    Callback = function(v)
+        State.Noclip = v
+        if v then
+            aplicarNoclip()
+            Rayfield:Notify({Title="Lucky Spin", Content="Noclip ATIVADO", Duration=3})
+        else
+            Rayfield:Notify({Title="Lucky Spin", Content="Noclip DESATIVADO", Duration=3})
+        end
+    end,
+})
+
+--// Aba: Jogador
+local AbaPlayer = Window:CreateTab("Jogador", 4483362458)
+
+AbaPlayer:CreateToggle({
+    Name = "God Mode",
+    CurrentValue = false,
+    Flag = "GodMode",
+    Callback = function(v)
+        State.GodMode = v
+        if v then
+            aplicarGodMode()
+            Rayfield:Notify({Title="Lucky Spin", Content="God Mode ATIVADO", Duration=3})
+        else
+            Rayfield:Notify({Title="Lucky Spin", Content="God Mode DESATIVADO", Duration=3})
+        end
+    end,
+})
+
+--// Aba: ESP
+local AbaESP = Window:CreateTab("ESP", 4483362458)
+
+AbaESP:CreateToggle({
+    Name = "ESP (Manics / Máquinas / Itens / Armários)",
+    CurrentValue = false,
+    Flag = "ESP",
+    Callback = function(v)
+        State.ESP = v
+        Rayfield:Notify({Title="Lucky Spin", Content=v and "ESP ATIVADO" or "ESP DESATIVADO", Duration=3})
+        if v then
+            task.spawn(function()
+                while State.ESP do
+                    atualizarESP()
+                    task.wait(1)
+                end
+            end)
+        else
+            removerTodosESP()
+        end
+    end,
+})
+
+Rayfield:Notify({
+    Title = "Lucky Spin",
+    Content = "Interface carregada! Somni's Engine.",
+    Duration = 5,
+})
+
+--// Aplica God Mode automaticamente ao respawnar
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if State.GodMode then aplicarGodMode() end
+    if State.Noclip then aplicarNoclip() end
+end)
